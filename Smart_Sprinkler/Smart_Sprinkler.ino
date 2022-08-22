@@ -5,61 +5,69 @@
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
 #include <EEPROM.h>
+#include <ESPmDNS.h>
 #include <WiFi.h>
+#include <WiFiManager.h>
 
-const char *ssid     = WIFI_SSID;
-const char *password = WIFI_PASS;
+const char *ssidAP     = WIFI_AP_SSID;
+const char *passwordAP = WIFI_AP_PASS;
 
+/* #region  EEPROM config */
+config_t config;
+/* #endregion */
+
+/* #region  Web Server config */
+httpd_handle_t          main_server;
 StaticJsonDocument<400> json_doc;
 char                    json_output[200];
 DeserializationError    json_error;
+/* #endregion */
 
+/* #region  Main Task var */
 int      humi_raw_val = 0;
 int      pVal         = 0;
 bool     bumpState    = false;
 uint64_t minute       = 1;
+/* #endregion */
 
-config_t config;
+/* #region  WiFi Manager Config */
+WiFiManager wm;
+/* #endregion */
 
 void setup()
 {
     Serial.begin(UART_BAUDRATE);
-    InitWiFiConfig();
+    Serial.setDebugOutput(true);
+
+    wm.setHostname(DEVICE_NAME);
+    wm.setConfigPortalTimeout(30);
+    if (!wm.autoConnect(WIFI_AP_SSID)) {
+        WiFi.mode(WIFI_AP);
+        LOG_PRINTLN("Configuring soft-AP...");
+        WiFi.softAP(ssidAP);
+    } else {
+        LOG_PRINTLN("Configuring STA...");
+    }
+
+    InitWiFiManager();
     InitOTAConfig();
     InitPump();
-    start_webserver();
+    main_server = start_webserver();
     EEPROM.begin(128);
     EEPROM.get(EEPROM_ADDR, config);
     if (config.check != CHECK_DATA) {
         // Load Default value
-        Serial.println("\nLoad Default config value");
+        LOG_PRINTLN("\nLoad Default config value");
         config.check    = CHECK_DATA;
-        config.lowp     = 25;       // 25%
-        config.interval = 60;       // 60 min
-        config.waterSec = 10;       // 10 s
-        config.maxLimit = 1500;     // adc 1500
-        config.minLimit = 2100;     // adc 2100
-        config.mode     = 1;        // manual mode
+        config.lowp     = 25;         // 25%
+        config.interval = 60;         // 60 min
+        config.waterSec = 10;         // 10 s
+        config.maxLimit = 1500;       // adc 1500
+        config.minLimit = 2100;       // adc 2100
+        config.mode     = MANUAL;     // manual mode
         EEPROM.put(EEPROM_ADDR, config);
         EEPROM.commit();
     }
-}
-
-bool InitWiFiConfig()
-{
-    WiFi.begin(ssid, password);
-    DEBUG_PRIMT("Waiting Wifi Connect");
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(1000);
-        DEBUG_PRIMT(".");
-    }
-
-    DEBUG_PRIMTLN("\nWiFi Connected!");
-    DEBUG_PRIMT("WiFi Connect To: ");
-    DEBUG_PRIMTLN(WiFi.SSID());
-    DEBUG_PRIMT("IP address: ");
-    DEBUG_PRIMTLN(WiFi.localIP());
-    return true;
 }
 
 bool InitOTAConfig()
@@ -67,7 +75,7 @@ bool InitOTAConfig()
     ArduinoOTA.setHostname("Smart-Sprinkler-PICO");
     ArduinoOTA.setPassword("12345678");
     ArduinoOTA.begin();
-    DEBUG_PRIMTLN("OTA ready!");
+    DEBUG_PRINTLN("OTA ready!");
     return true;
 }
 
@@ -80,42 +88,54 @@ bool InitPump()
     return true;
 }
 
+bool InitWiFiManager()
+{
+    pinMode(BTN_PIN, INPUT_PULLUP);
+    return true;
+}
+
 void loop()
 {
     ArduinoOTA.handle();
+    doWiFiManager();
+    mainTask();
+}
 
-    static uint32_t timer1;
-    static uint32_t timer2;
-    static uint32_t timer3 = millis() + 60000;
-    static bool     start  = false;
+void mainTask(void)
+{
+    static uint32_t getADC_Timer;
+    static uint32_t waterSec_timer;
+    static uint32_t minute_timer = millis() + 60000;
+    static uint32_t show_ip_timer;
+    static bool     start = false;
 
-    if (millis() > timer3) {
-        timer3 = millis() + 60000;
+    if (millis() > minute_timer) {
+        minute_timer = millis() + 60000;
         minute++;
     }
 
     switch (config.mode) {
-    case 0: {     // Auto
+    case AUTO: {
         if (pVal < config.lowp - (config.lowp * FUZZY_P * 0.01)) {
             digitalWrite(PUMP_PIN, HIGH);
         } else if (pVal > config.lowp + (config.lowp * FUZZY_P * 0.01)) {
             digitalWrite(PUMP_PIN, LOW);
         }
     } break;
-    case 1: {     // Manual
+    case MANUAL: {
         digitalWrite(PUMP_PIN, bumpState);
     } break;
-    case 2: {     // Timing
+    case TIMING: {
         if (minute >= config.interval) {
-            minute = 0;
-            timer2 = millis() + (config.waterSec * 1000);
-            start  = true;
+            minute         = 0;
+            waterSec_timer = millis() + (config.waterSec * 1000);
+            start          = true;
             digitalWrite(PUMP_PIN, HIGH);
         }
         if (start) {
-            if (millis() > timer2) {
-                timer3 = millis() + 60000;
-                start  = false;
+            if (millis() > waterSec_timer) {
+                minute_timer = millis() + 60000;
+                start        = false;
                 digitalWrite(PUMP_PIN, LOW);
             }
         } else {
@@ -126,12 +146,45 @@ void loop()
         break;
     }
 
-    if (millis() > timer1) {
-        timer1       = millis() + 100;
+    if (millis() > getADC_Timer) {
+        getADC_Timer = millis() + 100;
         humi_raw_val = analogRead(HUMI_SNESOR_PIN);
         pVal         = map(humi_raw_val, config.minLimit, config.maxLimit, 0, 100);
         pVal         = MIN(pVal, 100);
         pVal         = MAX(pVal, 0);
+    }
+
+    // show wifi ip
+    if (millis() > show_ip_timer) {
+        show_ip_timer = millis() + 10000;
+        String ip     = "None";
+        switch (WiFi.getMode()) {
+        case WIFI_MODE_AP:
+            ip = WiFi.softAPIP().toString();
+            break;
+        case WIFI_MODE_STA:
+            ip = WiFi.localIP().toString();
+            break;
+        }
+        LOG_PRINT("LocalIP: ");
+        LOG_PRINTLN(ip);
+    }
+}
+
+void doWiFiManager(void)
+{
+    // is configuration portal requested?
+    if (digitalRead(BTN_PIN) == LOW) {
+        stop_webserver(main_server);
+        LOG_PRINTLN("Button Pressed, Starting Web Portal");
+        wm.setHostname(DEVICE_NAME);
+        wm.setConfigPortalTimeout(180);
+        if (!wm.startConfigPortal(WIFI_AP_SSID)) {
+            WiFi.mode(WIFI_AP);
+            LOG_PRINTLN("Configuring soft-AP...");
+            WiFi.softAP(ssidAP);
+        }
+        main_server = start_webserver();
     }
 }
 
@@ -141,7 +194,7 @@ esp_err_t SetBumpON_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_send(req, "OK", HTTPD_RESP_USE_STRLEN);
 
-    Serial.println("SetBumpON_handler");
+    DEBUG_PRINTLN("SetBumpON_handler");
     return ESP_OK;
 }
 
@@ -150,7 +203,7 @@ esp_err_t SetBumpOFF_handler(httpd_req_t *req)
     bumpState = false;
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_send(req, "OK", HTTPD_RESP_USE_STRLEN);
-    Serial.println("SetBumpOFF_handler");
+    DEBUG_PRINTLN("SetBumpOFF_handler");
     return ESP_OK;
 }
 
@@ -162,8 +215,8 @@ esp_err_t GetWaterVal_handler(httpd_req_t *req)
     json_doc["raw"]  = humi_raw_val;
     serializeJson(json_doc, json_output);
     httpd_resp_send(req, json_output, HTTPD_RESP_USE_STRLEN);
-    Serial.print("GetWaterVal_handler: ");
-    Serial.println(json_output);
+    DEBUG_PRINT("GetWaterVal_handler: ");
+    DEBUG_PRINTLN(json_output);
     return ESP_OK;
 }
 
@@ -179,14 +232,14 @@ esp_err_t GetSetVal_handler(httpd_req_t *req)
     json_doc["waterSec"] = config.waterSec;
     serializeJson(json_doc, json_output);
     httpd_resp_send(req, json_output, HTTPD_RESP_USE_STRLEN);
-    Serial.print("GetSetVal_handler: ");
-    Serial.println(json_output);
+    DEBUG_PRINT("GetSetVal_handler: ");
+    DEBUG_PRINTLN(json_output);
     return ESP_OK;
 }
 
 esp_err_t GetMainPage(httpd_req_t *req)
 {
-    Serial.println("webpage loading");
+    DEBUG_PRINTLN("webpage loading");
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, MAIN_page, HTTPD_RESP_USE_STRLEN);
 }
@@ -207,8 +260,8 @@ esp_err_t SetMode_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_send(req, "OK", HTTPD_RESP_USE_STRLEN);
 
-    Serial.print("SetMode_handler: ");
-    Serial.println(config.mode);
+    DEBUG_PRINT("SetMode_handler: ");
+    DEBUG_PRINTLN(config.mode);
     return ESP_OK;
 }
 
@@ -238,8 +291,8 @@ esp_err_t SetSave_handler(httpd_req_t *req)
         httpd_resp_send(req, "OK", HTTPD_RESP_USE_STRLEN);
     }
 
-    Serial.print("SetSave_handler: ");
-    Serial.println(content);
+    DEBUG_PRINT("SetSave_handler: ");
+    DEBUG_PRINTLN(content);
     return ESP_OK;
 }
 
@@ -258,7 +311,7 @@ httpd_handle_t start_webserver(void)
 
     httpd_handle_t server = NULL;
 
-    Serial.printf("Starting web server on port: '%d'\n", config.server_port);
+    // Serial.printf("Starting web server on port: '%d'\n", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
         httpd_register_uri_handler(server, &uri_get_mainPage);
         httpd_register_uri_handler(server, &uri_get_waterVal);

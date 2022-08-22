@@ -9,6 +9,7 @@ const char MAIN_page[] PROGMEM = R"=====(
     <style>
         .display-flex {
             display: flex;
+            flex-wrap: wrap;
         }
 
         #water {
