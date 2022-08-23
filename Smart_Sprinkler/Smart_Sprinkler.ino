@@ -36,23 +36,12 @@ WiFiManager wm;
 
 void setup()
 {
+    delay(3000);
     Serial.begin(UART_BAUDRATE);
+    LOG_PRINTLN("Program Start.");
     Serial.setDebugOutput(true);
 
-    wm.setHostname(DEVICE_NAME);
-    wm.setConfigPortalTimeout(30);
-    if (!wm.autoConnect(WIFI_AP_SSID)) {
-        WiFi.mode(WIFI_AP);
-        LOG_PRINTLN("Configuring soft-AP...");
-        WiFi.softAP(ssidAP);
-    } else {
-        LOG_PRINTLN("Configuring STA...");
-    }
-
-    InitWiFiManager();
-    InitOTAConfig();
-    InitPump();
-    main_server = start_webserver();
+    /* #region  Init EEPROM */
     EEPROM.begin(128);
     EEPROM.get(EEPROM_ADDR, config);
     if (config.check != CHECK_DATA) {
@@ -68,6 +57,14 @@ void setup()
         EEPROM.put(EEPROM_ADDR, config);
         EEPROM.commit();
     }
+    /* #endregion */
+
+    InitWiFi();
+    InitWiFiManager();
+    InitOTAConfig();
+    InitPump();
+
+    main_server = start_webserver();
 }
 
 bool InitOTAConfig()
@@ -88,8 +85,23 @@ bool InitPump()
     return true;
 }
 
+bool InitWiFi()
+{
+    wm.setHostname(DEVICE_NAME);
+    wm.setConfigPortalTimeout(20);
+    if (wm.autoConnect(ssidAP)) {
+        Serial.println("WiFi STA Mode Connected.");
+    } else {
+        WiFi.mode(WIFI_MODE_AP);
+        WiFi.softAP(ssidAP);
+        Serial.println("WiFi AP Mode Connected.");
+    }
+    return true;
+}
+
 bool InitWiFiManager()
 {
+    wm.setDarkMode(true);
     pinMode(BTN_PIN, INPUT_PULLUP);
     return true;
 }
@@ -173,16 +185,23 @@ void mainTask(void)
 
 void doWiFiManager(void)
 {
-    // is configuration portal requested?
     if (digitalRead(BTN_PIN) == LOW) {
+        wifi_mode_t pre_mode = WiFi.getMode();
         stop_webserver(main_server);
         LOG_PRINTLN("Button Pressed, Starting Web Portal");
         wm.setHostname(DEVICE_NAME);
         wm.setConfigPortalTimeout(180);
         if (!wm.startConfigPortal(WIFI_AP_SSID)) {
-            WiFi.mode(WIFI_AP);
-            LOG_PRINTLN("Configuring soft-AP...");
-            WiFi.softAP(ssidAP);
+            WiFi.mode(pre_mode);
+            switch (pre_mode) {
+            case WIFI_MODE_AP:
+                LOG_PRINTLN("Configuring AP Mode...");
+                WiFi.softAP(ssidAP);
+                break;
+            case WIFI_MODE_STA:
+                LOG_PRINTLN("Configuring STA Mode...");
+                break;
+            }
         }
         main_server = start_webserver();
     }
