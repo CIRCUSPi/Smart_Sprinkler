@@ -45,6 +45,14 @@
 #define HUMI_SNESOR_PIN 33
 #define BTN_PIN 39
 
+#define NUM_LEDS 1
+#define LED_PIN 27
+
+#define LED_RED 0x00FF00
+#define LED_GREEN 0xFF0000
+#define LED_BLUE 0x0000FF
+#define LED_CLOSE 0x0
+
 #define MIN(a, b) ((a) > (b) ? (b) : (a))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 

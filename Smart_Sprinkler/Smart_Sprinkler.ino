@@ -1,3 +1,14 @@
+/**
+ * @file Smart_Sprinkler.ino
+ * @author Zack Huang (zackhuang0513@gmail.com)
+ * @brief Smart Sprinkler
+ * @version 1.0.0
+ * @date 2022-08-15
+ *
+ * @copyright Copyright (c) 2022
+ *
+ */
+
 #include "config.h"
 #include "esp_http_server.h"
 #include "webPage.h"
@@ -6,11 +17,16 @@
 #include <ArduinoOTA.h>
 #include <EEPROM.h>
 #include <ESPmDNS.h>
+#include <FastLED.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
 
 const char *ssidAP     = WIFI_AP_SSID;
 const char *passwordAP = WIFI_AP_PASS;
+
+/* #region  LED Config */
+CRGB leds[NUM_LEDS];
+/* #endregion */
 
 /* #region  EEPROM config */
 config_t config;
@@ -63,11 +79,11 @@ void setup()
     InitWiFiManager();
     InitOTAConfig();
     InitPump();
-
+    InitStateLED();
     main_server = start_webserver();
 }
 
-bool InitOTAConfig()
+bool InitOTAConfig(void)
 {
     ArduinoOTA.setHostname("Smart-Sprinkler-PICO");
     ArduinoOTA.setPassword("12345678");
@@ -76,7 +92,7 @@ bool InitOTAConfig()
     return true;
 }
 
-bool InitPump()
+bool InitPump(void)
 {
     pinMode(PUMP_PIN, OUTPUT);
     pinMode(HUMI_SNESOR_PIN, INPUT);
@@ -85,10 +101,11 @@ bool InitPump()
     return true;
 }
 
-bool InitWiFi()
+bool InitWiFi(void)
 {
     wm.setHostname(DEVICE_NAME);
     wm.setConfigPortalTimeout(20);
+    SetLEDColor(LED_RED);
     if (wm.autoConnect(ssidAP)) {
         Serial.println("WiFi STA Mode Connected.");
     } else {
@@ -99,10 +116,17 @@ bool InitWiFi()
     return true;
 }
 
-bool InitWiFiManager()
+bool InitWiFiManager(void)
 {
     wm.setDarkMode(true);
     pinMode(BTN_PIN, INPUT_PULLUP);
+    return true;
+}
+
+bool InitStateLED(void)
+{
+    FastLED.addLeds<SK6812, LED_PIN, RGB>(leds, NUM_LEDS);
+    SetLEDColor(LED_CLOSE);
     return true;
 }
 
@@ -111,6 +135,12 @@ void loop()
     ArduinoOTA.handle();
     doWiFiManager();
     mainTask();
+}
+
+void SetLEDColor(uint32_t color)
+{
+    leds[0] = color;
+    FastLED.show();
 }
 
 void mainTask(void)
@@ -173,9 +203,11 @@ void mainTask(void)
         switch (WiFi.getMode()) {
         case WIFI_MODE_AP:
             ip = WiFi.softAPIP().toString();
+            SetLEDColor(LED_BLUE);
             break;
         case WIFI_MODE_STA:
             ip = WiFi.localIP().toString();
+            SetLEDColor(LED_GREEN);
             break;
         }
         LOG_PRINT("LocalIP: ");
@@ -191,6 +223,7 @@ void doWiFiManager(void)
         LOG_PRINTLN("Button Pressed, Starting Web Portal");
         wm.setHostname(DEVICE_NAME);
         wm.setConfigPortalTimeout(180);
+        SetLEDColor(LED_RED);
         if (!wm.startConfigPortal(WIFI_AP_SSID)) {
             WiFi.mode(pre_mode);
             switch (pre_mode) {
