@@ -107,11 +107,11 @@ bool InitWiFi(void)
     wm.setConfigPortalTimeout(20);
     SetLEDColor(LED_RED);
     if (wm.autoConnect(ssidAP)) {
-        Serial.println("WiFi STA Mode Connected.");
+        LOG_PRINTLN(F("WiFi STA Mode Connected."));
     } else {
         WiFi.mode(WIFI_MODE_AP);
         WiFi.softAP(ssidAP);
-        Serial.println("WiFi AP Mode Connected.");
+        LOG_PRINTLN(F("WiFi AP Mode Connected."));
     }
     return true;
 }
