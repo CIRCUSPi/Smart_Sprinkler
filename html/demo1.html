@@ -8,6 +8,7 @@
     <style>
         .display-flex {
             display: flex;
+            flex-wrap: wrap;
         }
 
         #water {
@@ -166,7 +167,7 @@
         };
         function SetBumpON() {
             var xmlHttp = new XMLHttpRequest();
-            xmlHttp.open("GET", "http://192.168.1.49/bumpOn");
+            xmlHttp.open("GET", "http://192.168.1.55/bumpOn");
             xmlHttp.send(null);
             xmlHttp.onreadystatechange = function () {
                 if (this.readyState == 4 && this.status == 200) {
@@ -175,7 +176,7 @@
         }
         function SetBumpOFF() {
             var xmlHttp = new XMLHttpRequest();
-            xmlHttp.open("GET", "http://192.168.1.49/bumpOff");
+            xmlHttp.open("GET", "http://192.168.1.55/bumpOff");
             xmlHttp.send(null);
             xmlHttp.onreadystatechange = function () {
                 if (this.readyState == 4 && this.status == 200) {
@@ -184,7 +185,7 @@
         }
         function SetMode(mode) {
             var xmlHttp = new XMLHttpRequest();
-            xmlHttp.open("POST", "http://192.168.1.49/mode");
+            xmlHttp.open("POST", "http://192.168.1.55/mode");
             xmlHttp.send(document.getElementById("mode").value);
             xmlHttp.onreadystatechange = function () {
                 if (this.readyState == 4 && this.status == 200) {
@@ -194,7 +195,7 @@
         }
         function GetWaterVal() {
             var xmlHttp = new XMLHttpRequest();
-            xmlHttp.open("GET", "http://192.168.1.49/waterVal");
+            xmlHttp.open("GET", "http://192.168.1.55/waterVal");
             xmlHttp.send(null);
             xmlHttp.onreadystatechange = function () {
                 if (this.readyState == 4 && this.status == 200) {
@@ -208,7 +209,7 @@
         }
         function GetSetVal() {
             var xmlHttp = new XMLHttpRequest();
-            xmlHttp.open("GET", "http://192.168.1.49/setVal");
+            xmlHttp.open("GET", "http://192.168.1.55/setVal");
             xmlHttp.send(null);
             xmlHttp.onreadystatechange = function () {
                 if (this.readyState == 4 && this.status == 200) {
@@ -250,7 +251,7 @@
                 "waterSec": document.getElementById("water_sec").value,
             }
             var xmlHttp = new XMLHttpRequest();
-            xmlHttp.open("POST", "http://192.168.1.49/save");
+            xmlHttp.open("POST", "http://192.168.1.55/save");
             xmlHttp.send(JSON.stringify(jsonData));
             document.getElementById("high_val").value = "";
             document.getElementById("low_val").value = "";
